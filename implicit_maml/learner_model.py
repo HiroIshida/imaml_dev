@@ -12,7 +12,7 @@ class Learner:
         if GPU:
             self.model.cuda()
         assert outer_alg == 'sgd' or 'adam'
-        self.inner_opt = torch.optim.SGD(self.model.parameters(), lr=inner_lr)
+        self.inner_opt = torch.optim.Adam(self.model.parameters(), lr=inner_lr)
         if outer_alg == 'adam':
             self.outer_opt = torch.optim.Adam(self.model.parameters(), lr=outer_lr, eps=1e-3)
         else:
@@ -157,19 +157,30 @@ class Learner:
         """
         Performs hessian vector product on the train set in task with the provided vector
         """
-        if x is not None and y is not None:
-            xt, yt = x, y
-        else:
-            xt, yt = task['x_train'], task['y_train']
+        # if x is not None and y is not None:
+        #     xt, yt = x, y
+        # else:
+        #     xt, yt = task['x_train'], task['y_train']
         if params is not None:
             self.set_params(params)
-        tloss = self.get_loss(xt, yt)
-        grad_ft = torch.autograd.grad(tloss, self.model.parameters(), create_graph=True)
-        flat_grad = torch.cat([g.contiguous().view(-1) for g in grad_ft])
+        tloss = self.get_loss(task)
+        grad_ft = torch.autograd.grad(tloss, self.model.parameters(), create_graph=True, allow_unused=True)
+
+        def get_flat(grad_raw):
+            grads = []
+            for param, grad in zip(self.model.parameters(), grad_raw):
+                if grad is None:
+                    grad = torch.zeros_like(param)
+                grads.append(grad)
+            return torch.cat([g.contiguous().view(-1) for g in grads])
+
+        flat_grad = get_flat(grad_ft)
+
         vec = utils.to_device(vector, self.use_gpu)
         h = torch.sum(flat_grad * vec)
-        hvp = torch.autograd.grad(h, self.model.parameters())
-        hvp_flat = torch.cat([g.contiguous().view(-1) for g in hvp])
+        hvp = torch.autograd.grad(h, self.model.parameters(), allow_unused=True)
+        # hvp_flat = torch.cat([g.contiguous().view(-1) for g in hvp])
+        hvp_flat = get_flat(hvp)
         return hvp_flat
 
 
